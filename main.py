@@ -1,12 +1,10 @@
 import os
 import json
-import base64
-import hmac
-import hashlib
-from datetime import datetime
 import requests
 import oss2
-import sys  # 用于退出程序
+from datetime import datetime
+import sys
+import time
 
 # 阿里云 OSS 客户端
 class AliyunOSS:
@@ -19,30 +17,37 @@ class AliyunOSS:
         self.bucket = oss2.Bucket(self.auth, endpoint, bucket)
 
     def put_object_from_url(self, source_url, object_name):
-        # 获取图片流
+        """从 URL 上传文件到 OSS，禁止覆盖同名文件"""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Referer': 'https://www.pixiv.net/'  # 根据目标网站的要求设置 Referer
+            'Referer': 'https://www.pixiv.net/',
+            'x-oss-forbid-overwrite': 'true'  # 禁止覆盖同名文件
         }
         response = requests.get(source_url, headers=headers, stream=True)
         if response.status_code != 200:
-            # 打印详细的错误信息
-            print(f"Error fetching image from {source_url}:")
-            print(f"Status Code: {response.status_code}")
-            print(f"Response Headers: {response.headers}")
-            print(f"Response Body: {response.text}")
-            sys.exit(1)  # 退出程序
+            print(f"从 {source_url} 获取图片失败：")
+            print(f"状态码: {response.status_code}")
+            print(f"响应头: {response.headers}")
+            print(f"响应体: {response.text}")
+            sys.exit(1)
 
         # 上传到 OSS
-        result = self.bucket.put_object(object_name, response.content)
-        if result.status != 200:
-            print(f"Error uploading to OSS:")
-            print(f"Status Code: {result.status}")
-            print(f"Response Headers: {result.headers}")
-            print(f"Response Body: {result.resp.read()}")
-            sys.exit(1)  # 退出程序
-
-        return result
+        try:
+            result = self.bucket.put_object(object_name, response.content, headers=headers)
+            if result.status != 200:
+                print(f"上传到 OSS 失败：")
+                print(f"状态码: {result.status}")
+                print(f"响应头: {result.headers}")
+                print(f"响应体: {result.resp.read()}")
+                sys.exit(1)
+            return result
+        except oss2.exceptions.OssError as e:
+            if e.status == 409:  # 409 表示文件已存在
+                print(f"文件 {object_name} 已存在于 OSS，跳过。")
+                return None
+            else:
+                print(f"上传到 OSS 失败: {e}")
+                sys.exit(1)
 
 # Telegram 通知功能
 def send_telegram_message(bot_token, chat_id, message):
@@ -54,10 +59,10 @@ def send_telegram_message(bot_token, chat_id, message):
     }
     response = requests.post(url, json=payload)
     if response.status_code != 200:
-        print(f"Error sending Telegram message:")
-        print(f"Status Code: {response.status_code}")
-        print(f"Response Body: {response.text}")
-        sys.exit(1)  # 退出程序
+        print(f"发送 Telegram 消息失败：")
+        print(f"状态码: {response.status_code}")
+        print(f"响应体: {response.text}")
+        sys.exit(1)
 
 # 从URL提取文件名
 def get_file_name(url):
@@ -65,15 +70,19 @@ def get_file_name(url):
 
 # 处理单个图片
 def process_image(url, type, oss, processed_links):
-    # 检查是否已经处理过这个URL
-    if url in processed_links:
-        return None
-
+    """处理单个图片，确保本地 JSON 中未记录该文件"""
     file_name = get_file_name(url)
     object_name = f"pixiv/{type}/{file_name}"
 
-    # 使用流式上传
-    oss.put_object_from_url(url, object_name)
+    # 检查本地 JSON 中是否已记录该文件
+    if url in processed_links:
+        print(f"文件 {url} 已处理，跳过。")
+        return None
+
+    # 上传到 OSS
+    result = oss.put_object_from_url(url, object_name)
+    if result is None:  # 文件已存在，跳过
+        return None
 
     # 记录到 processed_links
     processed_links[url] = datetime.now().isoformat()
@@ -83,10 +92,10 @@ def process_image(url, type, oss, processed_links):
 # 主要处理逻辑
 def handle_request():
     endpoints = {
-        'm': 'https://pxrank-api.onani.cn/m',
-        'w': 'https://pxrank-api.onani.cn/w',
-        'd': 'https://pxrank-api.onani.cn/d',
-        'n': 'https://pxrank-api.onani.cn/n'
+        '每月': 'https://pxrank-api.onani.cn/m',
+        '每周': 'https://pxrank-api.onani.cn/w',
+        '每日': 'https://pxrank-api.onani.cn/d',
+        '新人': 'https://pxrank-api.onani.cn/n'
     }
 
     access_key_id = os.getenv('ACCESS_KEY_ID')
@@ -111,8 +120,16 @@ def handle_request():
     # 检查是否是月初，如果是则清空 processed_links
     now = datetime.now()
     if now.day == 1:
+        print(f"当前时间为 {now.year} 年 {now.month} 月 1 日，尝试清空 link.json...")
         processed_links = {}
-        send_telegram_message(bot_token, chat_id, '🔄 Monthly link cleanup completed')
+        with open('link.json', 'w') as f:
+            json.dump(processed_links, f)
+        print("清空 link.json 成功。")
+        send_telegram_message(bot_token, chat_id, f"🔄 {now.year} 年 {now.month} 月 1 日，已清空 link.json。")
+
+    # 发送开始运行通知
+    start_time = time.time()
+    send_telegram_message(bot_token, chat_id, "🚀 Github Action - Run Pixiv Image Uploader 开始运行...")
 
     # 处理每个端点
     for type, endpoint in endpoints.items():
@@ -120,16 +137,16 @@ def handle_request():
             # 获取URL列表
             response = requests.get(endpoint)
             if response.status_code != 200:
-                print(f"Error fetching URLs from {endpoint}:")
-                print(f"Status Code: {response.status_code}")
-                print(f"Response Headers: {response.headers}")
-                print(f"Response Body: {response.text}")
-                sys.exit(1)  # 退出程序
+                print(f"从 {endpoint} 获取 URL 列表失败：")
+                print(f"状态码: {response.status_code}")
+                print(f"响应头: {response.headers}")
+                print(f"响应体: {response.text}")
+                sys.exit(1)
 
             url_list = response.text.strip().split('\n')
             
             success_count = 0
-            failure_count = 0
+            skip_count = 0
             failures = []
 
             # 处理每个URL
@@ -138,48 +155,45 @@ def handle_request():
                     result = process_image(url.strip(), type, oss, processed_links)
                     if result:
                         success_count += 1
-                        # 每成功处理5张图片发送一次进度通知
-                        if success_count % 5 == 0:
-                            send_telegram_message(
-                                bot_token,
-                                chat_id,
-                                f"📈 Progress update ({type}):\nProcessed: {success_count}/{len(url_list)}"
-                            )
+                    else:
+                        skip_count += 1
                 except Exception as error:
-                    failure_count += 1
                     failures.append({"url": url, "error": str(error)})
-                    print(f"Error processing {url}: {error}")
-                    sys.exit(1)  # 退出程序
+                    print(f"处理 {url} 失败: {error}")
+                    sys.exit(1)
 
             # 发送处理完成通知
-            if success_count > 0 or failure_count > 0:
-                message = f"📊 Summary for type: {type}\n" \
-                         f"✅ Successful: {success_count}\n" \
-                         f"❌ Failed: {failure_count}\n" \
-                         f"📁 Type: {type}\n\n"
-                
-                if failures:
-                    message += "Failed URLs:\n"
-                    # 只显示前5个失败的URL，避免消息过长
-                    for failure in failures[:5]:
-                        message += f"{failure['url']}\nError: {failure['error']}\n\n"
-                    if len(failures) > 5:
-                        message += f"...and {len(failures) - 5} more failures\n"
-                
+            if success_count > 0:
+                message = f"📊 {type}排行榜同步完成：\n" \
+                         f"✅ 成功上传: {success_count} 张\n" \
+                         f"⏩ 跳过: {skip_count} 张\n" \
+                         f"📁 类型: {type}"
                 send_telegram_message(bot_token, chat_id, message)
+            else:
+                print(f"暂未发现 {type}排行榜有新增内容（本次检查的所有内容都已经在 link.json 中），跳过。")
 
         except Exception as error:
-            print(f"Error processing endpoint {endpoint}: {error}")
+            print(f"处理 {type}排行榜失败: {error}")
             send_telegram_message(
                 bot_token, 
                 chat_id, 
-                f"❌ Error processing endpoint {endpoint}: {error}"
+                f"❌ 处理 {type}排行榜失败: {error}"
             )
-            sys.exit(1)  # 退出程序
+            sys.exit(1)
 
     # 保存已处理的链接
     with open('link.json', 'w') as f:
         json.dump(processed_links, f)
+
+    # 发送运行结束通知
+    end_time = time.time()
+    total_time = int(end_time - start_time)
+    total_success = sum(1 for url in processed_links if url.startswith('http'))
+    send_telegram_message(
+        bot_token,
+        chat_id,
+        f"🏁 Github Action - Run Pixiv Image Uploader 运行结束，本次共同步 {total_success} 张图片，耗时 {total_time} 秒。"
+    )
 
 # 主函数
 if __name__ == "__main__":
