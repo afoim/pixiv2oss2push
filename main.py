@@ -6,6 +6,7 @@ import hashlib
 from datetime import datetime
 import requests
 import oss2
+import sys  # 用于退出程序
 
 # 阿里云 OSS 客户端
 class AliyunOSS:
@@ -19,14 +20,27 @@ class AliyunOSS:
 
     def put_object_from_url(self, source_url, object_name):
         # 获取图片流
-        response = requests.get(source_url, stream=True)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://www.pixiv.net/'  # 根据目标网站的要求设置 Referer
+        }
+        response = requests.get(source_url, headers=headers, stream=True)
         if response.status_code != 200:
-            raise Exception(f"Failed to fetch image from {source_url}: {response.status_code}")
+            # 打印详细的错误信息
+            print(f"Error fetching image from {source_url}:")
+            print(f"Status Code: {response.status_code}")
+            print(f"Response Headers: {response.headers}")
+            print(f"Response Body: {response.text}")
+            sys.exit(1)  # 退出程序
 
         # 上传到 OSS
         result = self.bucket.put_object(object_name, response.content)
         if result.status != 200:
-            raise Exception(f"Failed to upload to OSS: {result.status}")
+            print(f"Error uploading to OSS:")
+            print(f"Status Code: {result.status}")
+            print(f"Response Headers: {result.headers}")
+            print(f"Response Body: {result.resp.read()}")
+            sys.exit(1)  # 退出程序
 
         return result
 
@@ -40,7 +54,10 @@ def send_telegram_message(bot_token, chat_id, message):
     }
     response = requests.post(url, json=payload)
     if response.status_code != 200:
-        raise Exception(f"Failed to send Telegram message: {response.status_code} {response.text}")
+        print(f"Error sending Telegram message:")
+        print(f"Status Code: {response.status_code}")
+        print(f"Response Body: {response.text}")
+        sys.exit(1)  # 退出程序
 
 # 从URL提取文件名
 def get_file_name(url):
@@ -103,7 +120,11 @@ def handle_request():
             # 获取URL列表
             response = requests.get(endpoint)
             if response.status_code != 200:
-                raise Exception(f"Failed to fetch URLs from {endpoint}: {response.status_code}")
+                print(f"Error fetching URLs from {endpoint}:")
+                print(f"Status Code: {response.status_code}")
+                print(f"Response Headers: {response.headers}")
+                print(f"Response Body: {response.text}")
+                sys.exit(1)  # 退出程序
 
             url_list = response.text.strip().split('\n')
             
@@ -128,6 +149,7 @@ def handle_request():
                     failure_count += 1
                     failures.append({"url": url, "error": str(error)})
                     print(f"Error processing {url}: {error}")
+                    sys.exit(1)  # 退出程序
 
             # 发送处理完成通知
             if success_count > 0 or failure_count > 0:
@@ -153,6 +175,7 @@ def handle_request():
                 chat_id, 
                 f"❌ Error processing endpoint {endpoint}: {error}"
             )
+            sys.exit(1)  # 退出程序
 
     # 保存已处理的链接
     with open('link.json', 'w') as f:
