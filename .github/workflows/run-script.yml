@@ -36,18 +36,3 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
           python main.py
-
-      # 提交 link.json 文件的更改（如果需要）
-      - name: Commit and push changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}  # 使用 PAT 进行身份验证
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add link.json
-          git commit -m "Update link.json" || echo "No changes to commit"
-          git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
-          git push origin main
-          git commit -m "Update link.json" || echo "No changes to commit"
-          git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
-          git push origin main
