@@ -48,3 +48,6 @@ jobs:
           git commit -m "Update link.json" || echo "No changes to commit"
           git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
           git push origin main
+          git commit -m "Update link.json" || echo "No changes to commit"
+          git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git
+          git push origin main
