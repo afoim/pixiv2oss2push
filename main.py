@@ -43,8 +43,8 @@ class AliyunOSS:
             return result
         except oss2.exceptions.OssError as e:
             if e.status == 409:  # 409 表示文件已存在
-                print(f"文件 {object_name} 已存在于 OSS，跳过。")
-                return None
+                print(f"OSS 拒绝上传：文件 {object_name} 已存在于 OSS。")
+                return "exists_in_oss"  # 返回特殊标记，表示文件已存在于 OSS
             else:
                 print(f"上传到 OSS 失败: {e}")
                 sys.exit(1)
@@ -76,12 +76,16 @@ def process_image(url, type, oss, processed_links):
 
     # 检查本地 JSON 中是否已记录该文件
     if url in processed_links:
-        print(f"文件 {url} 已处理，跳过。")
-        return None
+        print(f"文件 {url} 已在 link.json 中，跳过。")
+        return "exists_in_json"  # 返回特殊标记，表示文件已在 link.json 中
 
     # 上传到 OSS
     result = oss.put_object_from_url(url, object_name)
-    if result is None:  # 文件已存在，跳过
+    if result == "exists_in_oss":  # 文件已存在于 OSS
+        # 将 URL 记录到 processed_links
+        processed_links[url] = datetime.now().isoformat()
+        return "exists_in_oss"
+    elif result is None:  # 上传失败
         return None
 
     # 记录到 processed_links
@@ -146,27 +150,31 @@ def handle_request():
             url_list = response.text.strip().split('\n')
             
             success_count = 0
-            skip_count = 0
+            exists_in_oss_count = 0
+            exists_in_json_count = 0
             failures = []
 
             # 处理每个URL
             for url in url_list:
                 try:
                     result = process_image(url.strip(), type, oss, processed_links)
-                    if result:
+                    if result == "exists_in_oss":
+                        exists_in_oss_count += 1
+                    elif result == "exists_in_json":
+                        exists_in_json_count += 1
+                    elif result:
                         success_count += 1
-                    else:
-                        skip_count += 1
                 except Exception as error:
                     failures.append({"url": url, "error": str(error)})
                     print(f"处理 {url} 失败: {error}")
                     sys.exit(1)
 
             # 发送处理完成通知
-            if success_count > 0:
+            if success_count > 0 or exists_in_oss_count > 0 or exists_in_json_count > 0:
                 message = f"📊 {type}排行榜同步完成：\n" \
                          f"✅ 成功上传: {success_count} 张\n" \
-                         f"⏩ 跳过: {skip_count} 张\n" \
+                         f"⏩ 已存在于 OSS: {exists_in_oss_count} 张\n" \
+                         f"⏩ 已在 link.json 中: {exists_in_json_count} 张\n" \
                          f"📁 类型: {type}"
                 send_telegram_message(bot_token, chat_id, message)
             else:
