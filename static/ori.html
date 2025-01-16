@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="https://q2.qlogo.cn/headimg_dl?dst_uin=2973517380&amp;spec=5">
+    <title>Pixiv 排行榜图片展示</title>
+    <meta name="description" content="收集Pixiv月/周/日/新榜，实时更新。">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Pixiv 排行榜图片展示</h1>
+            <button id="theme-toggle" class="theme-toggle" aria-label="切换主题">
+                <span class="sun">☀️</span>
+                <span class="moon">🌙</span>
+            </button>
+        </div>
+        <div class="buttons">
+            <button onclick="loadImages('monthly')" id="btn-monthly">月榜</button>
+            <button onclick="loadImages('weekly')" id="btn-weekly">周榜</button>
+            <button onclick="loadImages('daily')" id="btn-daily">日榜</button>
+            <button onclick="loadImages('rookie')" id="btn-rookie">新人榜</button>
+            <button onclick="loadImages('original')" id="btn-original">原创榜</button>
+            <button onclick="loadImages('daily_ai')" id="btn-daily_ai">AI榜</button>
+        </div>
+        
+        <!-- 添加图片容器 -->
+        <div id="monthly" class="waterfall category"></div>
+        <div id="weekly" class="waterfall category"></div>
+        <div id="daily" class="waterfall category"></div>
+        <div id="rookie" class="waterfall category"></div>
+        <div id="original" class="waterfall category"></div>
+        <div id="daily_ai" class="waterfall category"></div>
+        
+        <div class="loading" id="loading">加载中...</div>
+        <div class="error" id="error"></div>
+        <p class="footer">想了解本站是如何搭建的吗？<a href="https://t.me/AcoFork" target="_blank">联系我</a></p>
+    </div>
+
+    <script>
+        // 主题切换功能
+        const themeToggle = document.getElementById('theme-toggle');
+        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+        
+        // 从localStorage读取用户的主题偏好
+        const currentTheme = localStorage.getItem('theme');
+        if (currentTheme) {
+            document.documentElement.setAttribute('data-theme', currentTheme);
+        } else if (prefersDarkScheme.matches) {
+            // 如果没有存储的偏好，则使用系统偏好
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+
+        // 监听系统主题变化
+        prefersDarkScheme.addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+            }
+        });
+
+        // 切换主题
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+
+        function loadImages(type) {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            
+            // 隐藏所有分类
+            document.querySelectorAll('.category').forEach(el => {
+                el.style.display = 'none';
+            });
+            
+            // 显示选中的分类
+            const gallery = document.getElementById(type);
+            if (gallery) {
+                gallery.style.display = 'block';  // 改为 block 而不是 grid
+            }
+            
+            setActiveButton(type);
+        }
+
+        function setActiveButton(type) {
+            const buttons = document.querySelectorAll('.buttons button');
+            buttons.forEach(button => button.classList.remove('active'));
+            const activeButton = document.getElementById(`btn-${type}`);
+            if (activeButton) {
+                activeButton.classList.add('active');
+            }
+        }
+
+        // 默认加载月榜
+        loadImages('monthly');
+    </script>
+</body>
+</html>
