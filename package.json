@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "vue-infinite-loading": "^2.4.5",
+    "vue-masonry-css": "^1.0.3"
+  }
+}

@@ -33,7 +33,11 @@ jobs:
         OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-      run: python process_images.py
+      run: |
+        python get_pixiv_url.py
+        python upload_oss.py
+        python list_oss.py
+        python paixu.py oss_link.txt
       
     - name: Commit and push changes
       run: |
