@@ -17,38 +17,48 @@
             padding: 20px;
         }
 
-        .gallery {
-            column-gap: 20px;
-            margin: 0 auto;
+        .gallery-container {
             max-width: 1920px;
+            margin: 0 auto;
+            padding: 0 10px;
         }
 
+        .gallery {
+            display: flex;
+            flex-wrap: wrap;
+            margin: 0 -10px; /* 抵消列间距 */
+        }
+
+        .gallery-column {
+            padding: 0 10px;
+        }
+
+        /* 响应式列宽 */
         @media (min-width: 1600px) {
-            .gallery {
-                column-count: 4;
+            .gallery-column {
+                width: 25%;
             }
         }
 
         @media (max-width: 1599px) and (min-width: 1200px) {
-            .gallery {
-                column-count: 3;
+            .gallery-column {
+                width: 33.333%;
             }
         }
 
         @media (max-width: 1199px) and (min-width: 800px) {
-            .gallery {
-                column-count: 2;
+            .gallery-column {
+                width: 50%;
             }
         }
 
         @media (max-width: 799px) {
-            .gallery {
-                column-count: 1;
+            .gallery-column {
+                width: 100%;
             }
         }
 
         .image-item {
-            break-inside: avoid;
             margin-bottom: 20px;
             position: relative;
             background: #fff;
@@ -90,6 +100,7 @@
             padding: 20px;
             font-size: 16px;
             color: #666;
+            width: 100%;
         }
 
         .placeholder {
@@ -114,8 +125,12 @@
     </style>
 </head>
 <body>
-    <div class="gallery" id="gallery"></div>
-    <div class="loading" id="loading">加载中...</div>
+    <div class="gallery-container">
+        <div class="gallery" id="gallery">
+            <!-- 列容器会在JS中动态创建 -->
+        </div>
+        <div class="loading" id="loading">加载中...</div>
+    </div>
 
     <script>
         class ImageGallery {
@@ -127,6 +142,9 @@
                 this.loading = false;
                 this.allImagesLoaded = false;
                 this.imageUrls = [];
+                this.columns = [];
+                this.columnHeights = [];
+
                 this.observer = new IntersectionObserver(this.handleIntersection.bind(this), {
                     rootMargin: '50px'
                 });
@@ -134,7 +152,55 @@
                     rootMargin: '50px'
                 });
 
+                this.createColumns();
+                window.addEventListener('resize', () => this.handleResize());
                 this.init();
+            }
+
+            createColumns() {
+                // 清空现有列
+                this.gallery.innerHTML = '';
+                this.columns = [];
+                this.columnHeights = [];
+
+                // 根据屏幕宽度决定列数
+                const width = window.innerWidth;
+                let columnCount;
+                if (width >= 1600) columnCount = 4;
+                else if (width >= 1200) columnCount = 3;
+                else if (width >= 800) columnCount = 2;
+                else columnCount = 1;
+
+                // 创建列
+                for (let i = 0; i < columnCount; i++) {
+                    const column = document.createElement('div');
+                    column.className = 'gallery-column';
+                    this.gallery.appendChild(column);
+                    this.columns.push(column);
+                    this.columnHeights.push(0);
+                }
+            }
+
+            handleResize() {
+                const oldColumnCount = this.columns.length;
+                const width = window.innerWidth;
+                let newColumnCount;
+                if (width >= 1600) newColumnCount = 4;
+                else if (width >= 1200) newColumnCount = 3;
+                else if (width >= 800) newColumnCount = 2;
+                else newColumnCount = 1;
+
+                if (oldColumnCount !== newColumnCount) {
+                    // 保存现有的图片项
+                    const items = Array.from(document.querySelectorAll('.image-item'));
+                    // 重新创建列
+                    this.createColumns();
+                    // 按顺序重新分配图片项
+                    items.forEach((item, index) => {
+                        const columnIndex = index % this.columns.length;
+                        this.columns[columnIndex].appendChild(item);
+                    });
+                }
             }
 
             async init() {
@@ -176,24 +242,52 @@
                 });
             }
 
+            getShortestColumn() {
+                let minHeight = Math.min(...this.columnHeights);
+                return this.columnHeights.indexOf(minHeight);
+            }
+
             async loadImage(img) {
-                return new Promise((resolve, reject) => {
+                const imageItem = img.closest('.image-item');
+                
+                try {
                     const tempImage = new Image();
-                    tempImage.onload = () => {
-                        // 获取实际图片尺寸
-                        const aspectRatio = tempImage.height / tempImage.width;
-                        // 更新容器的宽高比
-                        img.parentElement.style.paddingBottom = `${aspectRatio * 100}%`;
-                        // 设置实际图片
-                        img.src = img.dataset.src;
-                        img.onload = () => {
-                            img.classList.add('loaded');
-                            resolve();
+                    
+                    await new Promise((resolve, reject) => {
+                        tempImage.onload = resolve;
+                        tempImage.onerror = () => {
+                            if (imageItem) {
+                                imageItem.remove();
+                            }
+                            reject(new Error('Image load failed'));
                         };
+                        tempImage.src = img.dataset.src;
+                    });
+
+                    const aspectRatio = tempImage.height / tempImage.width;
+                    const container = img.parentElement;
+                    if (container) {
+                        container.style.paddingBottom = `${aspectRatio * 100}%`;
+                    }
+                    
+                    img.src = img.dataset.src;
+                    img.onload = () => {
+                        img.classList.add('loaded');
+                        const placeholder = container.querySelector('.placeholder');
+                        if (placeholder) {
+                            placeholder.remove();
+                        }
                     };
-                    tempImage.onerror = reject;
-                    tempImage.src = img.dataset.src;
-                });
+                    
+                    img.onerror = () => {
+                        if (imageItem) {
+                            imageItem.remove();
+                        }
+                    };
+                    
+                } catch (error) {
+                    console.log('Image load failed:', img.dataset.src);
+                }
             }
 
             async loadMore() {
@@ -210,7 +304,7 @@
                     return;
                 }
 
-                batch.forEach(url => {
+                batch.forEach((url, index) => {
                     const item = document.createElement('div');
                     item.className = 'image-item';
                     
@@ -227,7 +321,10 @@
                     container.appendChild(placeholder);
                     container.appendChild(img);
                     item.appendChild(container);
-                    this.gallery.appendChild(item);
+
+                    // 将图片添加到对应的列
+                    const columnIndex = (this.page * this.pageSize + index) % this.columns.length;
+                    this.columns[columnIndex].appendChild(item);
                     
                     this.imageObserver.observe(img);
                 });
