@@ -23,7 +23,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 oss2 python-telegram-bot
+        pip install requests beautifulsoup4 oss2 python-telegram-bot httpx
         
     - name: Run image processing script
       env:
@@ -34,8 +34,15 @@ jobs:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: |
+        # 清理35天前的文件
+        python cleanup.py
+        # 同步OSS状态
+        python sync_oss.py
+        # 获取新的图片URL
         python get_pixiv_url.py
+        # 上传新图片到OSS
         python upload_oss.py
+        # 生成OSS链接列表
         python list_oss.py
         python paixu.py oss_link.txt
       
@@ -43,6 +50,6 @@ jobs:
       run: |
         git config --global user.name 'GitHub Action'
         git config --global user.email 'action@github.com'
-        git add oss_link.txt
-        git commit -m "Update oss_url.json" || echo "No changes to commit"
+        git add oss_link.txt url_status.json
+        git commit -m "Update OSS files and status" || echo "No changes to commit"
         git push
